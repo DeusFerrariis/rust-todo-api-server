@@ -25,6 +25,7 @@
             fd
             zellij
             rustup
+            cargo
             (rust-bin.selectLatestNightlyWith (toolchain: toolchain.default.override {
               extensions = [ "rust-src" "rust-analyzer"];
             }))
@@ -35,6 +36,7 @@
             alias find=fd
             cp /run/current-system/sw/bin/rust-analyzer ~/.local/share/nvim/mason/bin/
             alias zj="zellij --layout .layout.kdl"
+            rustup default nightly
           '';
         };
       }
