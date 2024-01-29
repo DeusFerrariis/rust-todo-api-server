@@ -1,110 +1,13 @@
 #![feature(associated_type_defaults)]
 
-use std::sync::Arc;
+mod handler;
+mod model;
+mod store;
 
+use rocket::{fairing::{Fairing, Info, Kind}, http::{Header, Status}, serde::json::Json, Request, Response, State};
+use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
-pub trait RecordStore<R, I> {
-    type Error;
-    type Result<T> = Result<T, Self::Error>;
-
-    async fn create_record(&self, record: R) -> Self::Result<I>;
-    async fn delete_record(&self, record_id: I) -> Self::Result<Option<R>>;
-    async fn get_record(&self, record_id: I) -> Self::Result<Option<R>>;
-    async fn patch_record(&self, record_id: I, patch: impl Fn(R) -> Self::Result<R>) -> Self::Result<R>;
-}
-
-pub struct MutexVec<T> {
-    inner: Arc<Mutex<Vec<T>>>
-}
-
-impl<T> MutexVec<T> {
-    fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(Vec::<T>::new())),
-        }
-    }
-}
-
-impl RecordStore<String, usize> for MutexVec<(usize, String)> {
-    type Error = ();
-
-    type Result<T> = Result<T, Self::Error>;
-
-    async fn create_record(&self, record: String) -> Self::Result<usize> {
-
-        let new_id: usize = {
-            let lock = self.inner.lock().await;
-
-            match lock.last() {
-                Some(lt) => lt.0 + 1,
-                _ => 0,
-            }
-        };
-
-        let mut lock = self.inner.lock().await;
-        let _ = lock.push((new_id, record));
-
-        Ok(new_id)
-    }
-
-    async fn delete_record(&self, record_id: usize) -> Self::Result<Option<String>> {
-        let mut lock = self.inner.lock().await;
-        let mut found: Option<String> = None;
-
-        lock.retain(|(i, t)| {
-            if i == &record_id {
-                found = Some(t.to_string());
-            }
-
-            i != &record_id
-        });
-
-        Ok(found)
-    }
-
-    async fn get_record(&self, record_id: usize) -> Self::Result<Option<String>> {
-        let lock = self.inner.lock().await;
-        let mut found: Option<String> = None;
-
-        if let Some((_, t)) = lock
-            .iter()
-            .find(|(i, _)| i == &record_id) {
-            found = Some(t.to_string());
-        }
-
-        Ok(found)
-    }
-
-    async fn patch_record(
-        &self,
-        record_id: usize,
-        patch: impl Fn(String) -> Self::Result<String>
-    ) -> Self::Result<String> {
-
-        let result = self.get_record(record_id).await;
-        let Ok(Some(r)) = result else {
-            return Err(());
-        };
-        
-        let Ok(p) = patch(r) else {
-            return Err(())
-        };
-
-        {
-            let lock = self.inner.lock().await;
-            let _ = lock.iter().map(|(i, t)| {
-                if i == &record_id {
-                    (i, &p)
-                } else {
-                    (i, t)
-                }
-            });
-        }
-
-        Ok(p)
-    }
-}
 
 #[derive(Serialize, Deserialize)]
 pub struct TaskData {
@@ -112,50 +15,56 @@ pub struct TaskData {
     content: String,
 }
 
-// TODO: create_task
-// TODO: get_task
-// TODO: get_tasks
-// TODO: complete_task
-
-#[tokio::main]
-async fn main() {
+#[derive(Serialize, Deserialize)]
+pub struct NewTaskRequest {
+    content: String,
 }
 
-#[cfg(test)]
-mod test {
-    use crate::MutexVec;
-    use crate::RecordStore;
+#[derive(Serialize, Deserialize)]
+pub struct NewTaskResponse {
+    id: usize,
+}
 
-    #[tokio::test]
-    async fn test_mutex_store() {
-        let store: MutexVec<(usize, String)> = MutexVec::<(usize, String)>::new();
+#[derive(Serialize, Deserialize)]
+pub struct TaskResponse {
+    id: usize,
+    content: String,
+}
 
-        // Create a record
-        let result = store.create_record(String::from("Make dinner")).await;
-        assert!(result == Ok(0));
+pub struct CORS;
 
-        // Get a record
-        let get_result = store.get_record(0).await;
-        assert!(get_result == Ok(Some(String::from("Make dinner"))));
-
-        // Delete a record
-        let delete_result = store.delete_record(0).await;
-        assert!(delete_result != Err(()));
-        assert_eq!(delete_result, Ok(Some(String::from("Make dinner"))));
-
-        // Create after delete
-        let _ = store.create_record(String::from("Make dinner")).await; // 0
-        let _ = store.create_record(String::from("Make dinner  ")).await; // 1
-        assert!(store.inner.lock().await.len() == 2);
-
-        let result = store.create_record(String::from("Make dinner")).await; // 1
-        assert!(result == Ok(2));
-
-        // Update a record
-        let result = store.patch_record(1, |_| {
-            Ok(String::from("Clean up dinner"))
-        }).await;
-
-        assert_eq!(result, Ok(String::from("Clean up dinner")));
+#[rocket::async_trait]
+impl Fairing for CORS {
+    fn info(&self) -> Info {
+        Info {
+            name: "Add CORS headers to responses",
+            kind: Kind::Response
+        }
     }
+
+    async fn on_response<'r>(&self, _request: &'r Request<'_>, response: &mut Response<'r>) {
+        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Methods", "POST, GET, PATCH, OPTIONS, PUT"));
+        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
+    }
+}
+
+#[rocket::options("/<_..>")]
+fn all_options() {
+    /* Intentionally left empty */
+}
+
+#[rocket::launch]
+fn rocket() -> _ {
+    rocket::build()
+        .attach(CORS)
+        .manage(store::local::MutexVec::<(usize, String)>::new())
+        .mount("/", rocket::routes![
+            all_options,
+            handler::task::create_task,
+            handler::task::get_task,
+            handler::task::get_tasks,
+            handler::task::complete_task,
+        ])
 }
