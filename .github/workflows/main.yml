@@ -27,7 +27,7 @@ jobs:
           role-to-assume: arn:aws:iam::310413295224:role/gh-action-put-rust-todo-api-server-binary #change to reflect your IAM role’s ARN
           role-session-name: GitHub_to_AWS_via_FederatedOIDC
           aws-region: ${{ env.AWS_REGION }}
-      - name: Setup nix environment
+      - name: Setup nix environment --extra-experimental-features nix-command
         uses: cachix/install-nix-action@v2
       - name: build binary
         run: nix develop --command cargo build
