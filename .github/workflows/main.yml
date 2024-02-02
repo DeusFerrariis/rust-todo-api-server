@@ -30,6 +30,6 @@ jobs:
       - name: Setup nix environment 
         uses: cachix/install-nix-action@v2
       - name: build binary
-        run: nix develop --command cargo build --extra-experimental-features nix-command
+        run: nix develop --extra-experimental-features nix-command --command cargo build 
       - name: put binary to s3
         run: aws s3 cp ./target/debug/api-server s3://s3://rust-todo-binary/api-server/binary
