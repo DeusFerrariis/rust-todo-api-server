@@ -32,4 +32,4 @@ jobs:
       - name: build binary
         run: nix develop --extra-experimental-features nix-command --extra-experimental-features flakes --command cargo build 
       - name: put binary to s3
-        run: aws s3 cp ./target/debug/api-server s3://s3://rust-todo-binary/api-server/binary
+        run: aws s3 cp ./target/debug/api-server s3://rust-todo-binary/api-server/binary
