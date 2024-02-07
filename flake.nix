@@ -22,7 +22,7 @@
             openssl
             pkg-config
             eza
-            cc
+            gcc
             fd
             zellij
             rustup
