@@ -1,0 +1,3 @@
+[target.x86_64-unknown-linux-gnu.zig]
+enable = true       # enable use of the zig image
+version = "2.26"    # glibc version to use
